@@ -24,16 +24,19 @@
  * by Michael Ferrara a.k.a. ferram4, also released under the GPLv3 (or any later version).
  */
 
-using KSPAPIExtensions;
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using UnityEngine;
+using KSPAPIExtensions;
 
 namespace GlowStrips
 {
     /// <summary>
     /// The PartModule class implementing GlowStrip functionality on supported parts.
     /// </summary>
-    public class GlowStrip : PartModule
+    public class GlowStripX : PartModule
     {
         #region "KSPFields"
         /// <summary>
@@ -95,8 +98,38 @@ namespace GlowStrips
         /// </summary>
         [KSPField(guiName = "Seconds", isPersistant = false, guiActive = true, guiActiveEditor = false)]
         public float seconds = 1.0f;
-        [KSPField]
+
+        [KSPField(guiName = "Name", isPersistant= true, guiActive = false, guiActiveEditor = true)]
         public string GSName = "";
+
+        [KSPField(isPersistant = true)]
+        public string groupName = "";
+
+        /// <summary>
+        /// The Vec3 used to scale the GlowStrip. .z is the length parameter, and is equal to length when updated.
+        /// </summary>
+        [KSPField(isPersistant = true)]
+        public Vector3 scale = Vector3.one;
+
+        /// <summary>
+        /// The length, in meters, of the GlowStrip
+        /// </summary>
+        [KSPField(isPersistant = true, guiActiveEditor = true, guiActive = false, guiName = "Length", guiFormat = "S5", guiUnits = "m")]
+        [UI_FloatEdit(minValue = .125f, maxValue = 12f, incrementSlide = .0125f, incrementSmall = .25f, incrementLarge = 1.0f)]
+        public float length = 1.0f;
+
+        /// <summary>
+        /// Whether the GlowStrip is bound to the throttle or not.
+        /// </summary>
+        [KSPField(isPersistant = true, guiName = "Bound to throttle", guiActive = true)]
+        [UI_Toggle(scene = UI_Scene.Editor, enabledText = "Yes", disabledText = "No")]
+        public bool throttleBound = false;
+
+        /// <summary>
+        /// Whether the GlowStrip was elected to be the 'master' of it's symmetryCounterparts. Determines which counterpart calls updateCounterparts.
+        /// </summary>
+        [KSPField(isPersistant = true)]
+        public bool master = true;
         #endregion
 
         #region "Other Fields"
@@ -134,6 +167,37 @@ namespace GlowStrips
         /// The float array of timescale options.
         /// </summary>
         protected float[] timeScales = { 0.1f, 0.5f, 1f, 5f, 10f, 30f };
+
+        /// <summary>
+        /// Used to compare if throttleBound has been altered.
+        /// </summary>
+        protected bool oldTB;
+
+        /// <summary>
+        /// Used to compare if length has been altered.
+        /// </summary>
+        protected float oldLength;
+
+        /// <summary>
+        /// Used to save 'time', when the GlowStrip is bound to throttle.
+        /// </summary>
+        protected int oldTime = 1;
+
+        /// <summary>
+        /// Used to save 'timeScale', when the GlowStrip is bound to throttle.
+        /// </summary>
+        protected int oldTimeScale = 1;
+
+        /// <summary>
+        /// Used to save 'pulsing', when the GlowStrip is bound to throttle.
+        /// </summary>
+        protected bool oldPulsing;
+
+        /// <summary>
+        /// Used to save 'glowing', when the GlowStrip is bound to throttle.
+        /// </summary>
+        protected bool oldGlowing;
+        
         #endregion
 
         #region "PartModule Methods"
@@ -189,6 +253,26 @@ namespace GlowStrips
                 partAnim.Play("glowAnim");
                 partAnim.Stop("glowAnim");
             }
+
+            checkLengthValue();
+            if (throttleBound)
+                this.Fields["seconds"].guiActive = false;
+            Invoke("updateScale", 0.01f);
+            if (part.symmetryCounterparts != null)
+            {
+                master = true;
+                foreach (Part p in part.symmetryCounterparts)
+                {
+                    // If any counterpart considers itself the master, this isn't the master.
+                    master = p.Modules.OfType<GlowStripAdaptive>().FirstOrDefault().master ? false : master;
+                }
+                Debug.Log("Counterparts :" + part.symmetryCounterparts.Count);
+            }
+            else
+            {
+                master = true;
+                Debug.Log("No counterparts found");
+            }
         }
 
         /// <summary>
@@ -226,6 +310,66 @@ namespace GlowStrips
                 if (!playing)
                     partAnim.Stop();
             }
+            if (!checkLengthValue())
+            {
+                updateScale();
+            }
+            if (!checkTB())
+            {
+                if (throttleBound)
+                {
+                    oldTimeScale = timeScale;
+                    oldTime = time;
+                    timeScale = 1;
+                    time = 1;
+                    oldPulsing = pulsing;
+                    oldGlowing = glowing;
+                    pulsing = false;
+                    glowing = false;
+                    this.Fields["throttleBound"].guiActive = true;
+
+                    this.Fields["timeScale"].guiActiveEditor = false;
+                    this.Fields["time"].guiActiveEditor = false;
+                    this.Fields["seconds"].guiActive = false;
+                    this.Actions["toggleGlow"].active = false;
+                    this.Actions["startGlow"].active = false;
+                    this.Actions["stopGlow"].active = false;
+                    this.Events["toggleGlow"].active = false;
+                    this.Events["togglePulse"].active = false;
+                }
+                else
+                {
+                    time = oldTime;
+                    timeScale = oldTimeScale;
+                    pulsing = oldPulsing;
+                    glowing = oldGlowing;
+                    this.Fields["throttleBound"].guiActive = false;
+
+                    this.Fields["timeScale"].guiActiveEditor = true;
+                    this.Fields["time"].guiActiveEditor = true;
+                    this.Fields["seconds"].guiActive = true;
+                    this.Actions["toggleGlow"].active = true;
+                    this.Actions["startGlow"].active = true;
+                    this.Actions["stopGlow"].active = true;
+                    this.Events["toggleGlow"].active = true;
+                    this.Events["togglePulse"].active = true;
+                }
+                refreshMenu();
+                updateCurves();
+                glowAnim.normalizedTime = 0.0f;
+                glowAnim.speed = 0.0f;
+                partAnim.Play("glowAnim");
+            }
+
+        }
+
+        /// <summary>
+        /// The method called by KSP on each update frame.
+        /// </summary>
+        public override void OnUpdate()
+        {
+            if (throttleBound)
+                throttleUpdateGlow();
         }
         #endregion
 
@@ -429,7 +573,7 @@ namespace GlowStrips
                 AnimationCurve redCurve = AnimationCurve.Linear(0.0f, 0.0f, (float)((time + 1) * timeScales[timeScale]), glowValue * glowRed);
                 AnimationCurve greenCurve = AnimationCurve.Linear(0.0f, 0.0f, (float)((time + 1) * timeScales[timeScale]), glowValue * glowGreen);
                 AnimationCurve blueCurve = AnimationCurve.Linear(0.0f, 0.0f, (float)((time + 1) * timeScales[timeScale]), glowValue * glowBlue);
-                
+
                 glowAnimClip = new AnimationClip();
                 glowAnimClip.SetCurve("", typeof(Material), "_EmissiveColor.r", redCurve);
                 glowAnimClip.SetCurve("", typeof(Material), "_EmissiveColor.g", greenCurve);
@@ -437,6 +581,104 @@ namespace GlowStrips
 
                 partAnim.AddClip(glowAnimClip, "glowAnim");
                 glowAnim = partAnim["glowAnim"];
+            }
+        }
+
+        /// <summary>
+        /// Used to update the glow, if the GlowStrip is bound to the throttle.
+        /// </summary>
+        protected void throttleUpdateGlow()
+        {
+            glowAnim.normalizedTime = (float)Math.Pow(vessel.ctrlState.mainThrottle, 2.2);
+            glowAnim.speed = 0.0f;
+            partAnim.Play("glowAnim");
+        }
+
+        /// <summary>
+        /// Checks whether the length value has changed since the last call.
+        /// </summary>
+        /// <returns>False if changed, true if unchanged.</returns>
+        private bool checkLengthValue()
+        {
+            if (length != oldLength)
+            {
+                oldLength = length;
+                return false;
+            }
+            else return true;
+        }
+
+        /// <summary>
+        /// Checks whether the throttleBound has changed since the last call.
+        /// </summary>
+        /// <returns>False if changed, true if unchanged.</returns>
+        private bool checkTB()
+        {
+            if (throttleBound != oldTB)
+            {
+                oldTB = throttleBound;
+                return false;
+            }
+            else return true;
+        }
+
+        /// <summary>
+        /// Updates the scale of the GlowStrip, based on the current length value.
+        /// </summary>
+        private void updateScale()
+        {
+            Transform scaleTransform = transform.GetChild(0);
+            scale.z = length;
+            scaleTransform.localScale = scale;
+            scaleTransform.hasChanged = true;
+            transform.hasChanged = true;
+            if (master && part.symmetryCounterparts.Count != 0)
+                updateCounterparts();
+        }
+
+        /// <summary>
+        /// Ensures the counterparts are updated. Only called if this was elected the master.
+        /// </summary>
+        private void updateCounterparts()
+        {
+            int i = 0;
+            bool loop = true;
+            Part sPart;
+            GlowStripX mod;
+            while (loop)
+            {
+                if (i > part.symmetryCounterparts.Count - 1)
+                    break;
+                if (part.symmetryCounterparts[i])
+                {
+                    sPart = part.symmetryCounterparts[i];
+                    mod = sPart.Modules.OfType<GlowStripX>().FirstOrDefault();
+
+                    if (mod.length != this.length)
+                    {
+                        mod.length = this.length;
+                        mod.throttleBound = this.throttleBound;
+                        mod.time = this.time;
+                        mod.timeScale = this.timeScale;
+                        mod.checkLengthValue();
+                        mod.updateScale();
+                    }
+                    i++;
+                }
+                else
+                {
+                    i++;
+
+                    if (part.symmetryCounterparts[i])
+                    {
+                        Invoke("updateCounterparts", 0.01f);
+                    }
+                    else
+                    {
+                        loop = false;
+                    }
+
+                }
             }
         }
 

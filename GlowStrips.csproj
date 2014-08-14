@@ -40,6 +40,9 @@
       <HintPath>..\Assembly-CSharp.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="Assembly-CSharp-firstpass">
+      <HintPath>..\Assembly-CSharp-firstpass.dll</HintPath>
+    </Reference>
     <Reference Include="KSPAPIExtensions">
       <HintPath>..\KSPAPIExtensions.dll</HintPath>
     </Reference>
@@ -55,8 +58,11 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="KerbalGraph.cs" />
+    <Compile Include="GlowManager.cs" />
     <Compile Include="GlowStrip.cs" />
     <Compile Include="GlowStripAdaptive.cs" />
+    <Compile Include="GlowStripX.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
